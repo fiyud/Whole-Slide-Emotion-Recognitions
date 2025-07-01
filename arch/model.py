@@ -115,57 +115,29 @@ class DualStreamWithAuxiliaryOutputs(nn.Module):
     def forward(self, waveform, mfcc, targets=None, return_loss=False):
         batch_size = waveform.size(0)
         
-        # Stream 1: Process waveform (bidirectional GRU)
-        try:
-            wave_features = self.waveform_extractor(waveform)
-            wave_features_lstm = wave_features.permute(0, 2, 1)
-            wave_features_lstm, _ = self.waveform_lstm(wave_features_lstm)
-            wave_features_final = wave_features_lstm[:, -1, :]  # [batch_size, 512]
-            wave_features_final = self.waveform_fc(wave_features_final)  # [batch_size, 128]
+        wave_features = self.waveform_extractor(waveform)
+        wave_features_lstm = wave_features.permute(0, 2, 1)
+        wave_features_lstm, _ = self.waveform_lstm(wave_features_lstm)
+        wave_features_final = wave_features_lstm[:, -1, :]  # [batch_size, 512]
+        wave_features_final = self.waveform_fc(wave_features_final)  # [batch_size, 128]
             
-            # Auxiliary output for waveform stream
-            wave_aux_logits = self.waveform_aux_classifier(wave_features_final)
-            
-        except Exception as e:
-            print(f"Error in waveform stream: {e}")
-            print(f"Waveform shape: {waveform.shape}")
-            if 'wave_features' in locals():
-                print(f"Wave features after extractor: {wave_features.shape}")
-            if 'wave_features_lstm' in locals():
-                print(f"Wave features after GRU: {wave_features_lstm.shape}")
-            if 'wave_features_final' in locals():
-                print(f"Wave features final shape: {wave_features_final.shape}")
-            raise
+        # Auxiliary output for waveform stream
+        wave_aux_logits = self.waveform_aux_classifier(wave_features_final)
 
-        # Stream 2: Process MFCC (regular GRU)
-        try:
-            mfcc_features = self.mfcc_extractor(mfcc)
+        mfcc_features = self.mfcc_extractor(mfcc)
             
-            attention_weights = self.attention(mfcc_features)
-            mfcc_features_att = mfcc_features * attention_weights
+        attention_weights = self.attention(mfcc_features)
+        mfcc_features_att = mfcc_features * attention_weights
             
-            mfcc_pooled = F.adaptive_avg_pool2d(mfcc_features_att, (1, 1))
-            mfcc_pooled = mfcc_pooled.view(batch_size, 128, 1).permute(0, 2, 1)
+        mfcc_pooled = F.adaptive_avg_pool2d(mfcc_features_att, (1, 1))
+        mfcc_pooled = mfcc_pooled.view(batch_size, 128, 1).permute(0, 2, 1)
             
-            mfcc_features_gru, _ = self.mfcc_gru(mfcc_pooled)
-            mfcc_features_final = mfcc_features_gru[:, -1, :]  # [batch_size, 256]
-            mfcc_features_final = self.mfcc_fc(mfcc_features_final)  # [batch_size, 128]
+        mfcc_features_gru, _ = self.mfcc_gru(mfcc_pooled)
+        mfcc_features_final = mfcc_features_gru[:, -1, :]  # [batch_size, 256]
+        mfcc_features_final = self.mfcc_fc(mfcc_features_final)  # [batch_size, 128]
             
-            # Auxiliary output for MFCC stream
-            mfcc_aux_logits = self.mfcc_aux_classifier(mfcc_features_final)
-            
-        except Exception as e:
-            print(f"Error in MFCC stream: {e}")
-            print(f"MFCC shape: {mfcc.shape}")
-            if 'mfcc_features' in locals():
-                print(f"MFCC features after extractor: {mfcc_features.shape}")
-            if 'mfcc_pooled' in locals():
-                print(f"MFCC pooled shape: {mfcc_pooled.shape}")
-            if 'mfcc_features_gru' in locals():
-                print(f"MFCC features after GRU: {mfcc_features_gru.shape}")
-            if 'mfcc_features_final' in locals():
-                print(f"MFCC features final shape: {mfcc_features_final.shape}")
-            raise
+        # Auxiliary output for MFCC stream
+        mfcc_aux_logits = self.mfcc_aux_classifier(mfcc_features_final)
 
         fused_features = torch.cat((wave_features_final, mfcc_features_final), dim=1)
         
